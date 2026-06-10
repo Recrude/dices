@@ -158,7 +158,26 @@ function face2D(verts, face, upVert) {
     const r = new THREE.Vector3().subVectors(verts[i], c);
     return [r.dot(u), r.dot(w)];
   });
-  return { pts, normal: n };
+  return { pts, normal: n, c, u, w };
+}
+
+// inset a convex CCW polygon by distance b (each edge moved inward, lines re-intersected)
+function insetPolygon(pts, b) {
+  const m = pts.length;
+  const lines = pts.map((p, i) => {
+    const q = pts[(i + 1) % m];
+    const ex = q[0] - p[0], ey = q[1] - p[1];
+    const len = Math.hypot(ex, ey);
+    const nx = -ey / len, ny = ex / len; // interior is left of a CCW edge
+    return { px: p[0] + nx * b, py: p[1] + ny * b, dx: ex, dy: ey };
+  });
+  return pts.map((_, i) => {
+    const a = lines[(i - 1 + m) % m], c = lines[i];
+    const det = a.dx * c.dy - a.dy * c.dx;
+    if (Math.abs(det) < 1e-9) return [c.px, c.py];
+    const t = ((c.px - a.px) * c.dy - (c.py - a.py) * c.dx) / det;
+    return [a.px + a.dx * t, a.py + a.dy * t];
+  });
 }
 
 function buildDie(type) {
@@ -198,8 +217,19 @@ function buildDie(type) {
     ? f => (f.includes(10) ? 10 : 11)
     : () => undefined;
   const projected = poly.faces.map(f => face2D(poly.verts, f, upVertOf(f)));
-  const { texture, uvRects } = drawAtlas(type, poly, projected, labels, vertValues);
-  const geometry = buildGeometry(poly, projected, uvRects);
+
+  // visual-only bevel: ~8% of the circumradius, capped so small faces survive
+  const minInr = Math.min(...projected.map(pr => polygonInradius(pr.pts)));
+  const bevel = Math.min(R * 0.08, minInr * 0.4);
+  const inset2 = projected.map(pr => insetPolygon(pr.pts, bevel));
+  const inset3 = inset2.map((pts2, fi) => {
+    const { c, u, w } = projected[fi];
+    return pts2.map(([x, y]) =>
+      c.clone().addScaledVector(u, x).addScaledVector(w, y));
+  });
+
+  const { texture, uvRects, greenUV } = drawAtlas(type, poly, projected, labels, vertValues);
+  const geometry = buildGeometry(poly, projected, uvRects, inset2, inset3, greenUV);
   const material = new THREE.MeshPhongMaterial({
     map: texture, specular: 0x050505, shininess: 100,
   });
@@ -217,8 +247,8 @@ function buildDie(type) {
 
 function drawAtlas(type, poly, projected, labels, vertValues) {
   const F = poly.faces.length;
-  const cols = Math.ceil(Math.sqrt(F));
-  const rows = Math.ceil(F / cols);
+  const cols = Math.ceil(Math.sqrt(F + 1)); // one spare tile of plain green for the bevels
+  const rows = Math.ceil((F + 1) / cols);
   const canvas = document.createElement('canvas');
   canvas.width = cols * TILE;
   canvas.height = rows * TILE;
@@ -242,7 +272,7 @@ function drawAtlas(type, poly, projected, labels, vertValues) {
       const face = poly.faces[f];
       for (let k = 0; k < 3; k++) {
         const [x, y] = pts[k];
-        const px = cx + x * s * 0.58, py = cy - y * s * 0.58;
+        const px = cx + x * s * 0.52, py = cy - y * s * 0.52;
         const dx = x * s, dy = -y * s; // corner dir in canvas coords
         const len = Math.hypot(dx, dy);
         const ang = Math.atan2(dx / len, -dy / len);
@@ -274,28 +304,90 @@ function drawAtlas(type, poly, projected, labels, vertValues) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;
-  return { texture, uvRects };
+  const greenUV = [
+    (((F % cols) * TILE) + TILE / 2) / canvas.width,
+    1 - (((Math.floor(F / cols)) * TILE) + TILE / 2) / canvas.height,
+  ];
+  return { texture, uvRects, greenUV };
 }
 
-function buildGeometry(poly, projected, uvRects) {
+// beveled render geometry: faces are inset, the freed border becomes bevel strips
+// (normals blend the two adjacent faces) and corner patches — physics stays sharp
+function buildGeometry(poly, projected, uvRects, inset2, inset3, greenUV) {
   const positions = [], normals = [], uvs = [];
+
+  const emitTri = (pa, na, ua, pb, nb, ub, pc, nc, uc) => {
+    const cross = new THREE.Vector3().subVectors(pb, pa)
+      .cross(new THREE.Vector3().subVectors(pc, pa));
+    const center = new THREE.Vector3().add(pa).add(pb).add(pc);
+    if (cross.dot(center) < 0) { [pb, pc] = [pc, pb]; [nb, nc] = [nc, nb]; [ub, uc] = [uc, ub]; }
+    for (const [p, n, uv] of [[pa, na, ua], [pb, nb, ub], [pc, nc, uc]]) {
+      positions.push(p.x, p.y, p.z);
+      normals.push(n.x, n.y, n.z);
+      uvs.push(uv[0], uv[1]);
+    }
+  };
+
+  // ① flat number faces (inset polygons, original atlas mapping)
   poly.faces.forEach((face, f) => {
     const n = projected[f].normal;
-    const { pts } = projected[f];
     const { cx, cy, s, W, H } = uvRects[f];
-    const uvOf = k => {
-      const px = cx + pts[k][0] * s, py = cy - pts[k][1] * s;
-      return [px / W, 1 - py / H];
-    };
+    const uvOf = ([x, y]) => [(cx + x * s) / W, 1 - (cy - y * s) / H];
+    const p2 = inset2[f], p3 = inset3[f];
     for (let k = 1; k < face.length - 1; k++) {
-      for (const idx of [0, k, k + 1]) {
-        const v = poly.verts[face[idx]];
-        positions.push(v.x, v.y, v.z);
-        normals.push(n.x, n.y, n.z);
-        uvs.push(...uvOf(idx));
-      }
+      emitTri(p3[0], n, uvOf(p2[0]), p3[k], n, uvOf(p2[k]), p3[k + 1], n, uvOf(p2[k + 1]));
     }
   });
+
+  // adjacency from the face loops
+  const edgeMap = new Map(); // edge -> [{f, j}] both sides
+  const vertMap = new Map(); // vertex -> [{f, j}] all touching corners
+  poly.faces.forEach((face, f) => {
+    face.forEach((vi, j) => {
+      const vj = face[(j + 1) % face.length];
+      const key = vi < vj ? `${vi}_${vj}` : `${vj}_${vi}`;
+      if (!edgeMap.has(key)) edgeMap.set(key, []);
+      edgeMap.get(key).push({ f, j });
+      if (!vertMap.has(vi)) vertMap.set(vi, []);
+      vertMap.get(vi).push({ f, j });
+    });
+  });
+
+  // ② bevel strips: one quad per original edge, shading blends face A into face B
+  for (const sides of edgeMap.values()) {
+    if (sides.length !== 2) continue;
+    const [A, B] = sides;
+    const nA = projected[A.f].normal, nB = projected[B.f].normal;
+    const lenA = poly.faces[A.f].length, lenB = poly.faces[B.f].length;
+    const aVa = inset3[A.f][A.j], aVb = inset3[A.f][(A.j + 1) % lenA];
+    const bVb = inset3[B.f][B.j], bVa = inset3[B.f][(B.j + 1) % lenB]; // B runs the edge reversed
+    emitTri(aVa, nA, greenUV, aVb, nA, greenUV, bVb, nB, greenUV);
+    emitTri(aVa, nA, greenUV, bVb, nB, greenUV, bVa, nB, greenUV);
+  }
+
+  // ③ corner patches: fan over each original vertex's inset corners
+  for (const [vi, corners] of vertMap) {
+    if (corners.length < 3) continue;
+    const v = poly.verts[vi];
+    const vhat = v.clone().normalize();
+    const ref = Math.abs(vhat.x) > 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+    const t1 = new THREE.Vector3().crossVectors(vhat, ref).normalize();
+    const t2 = new THREE.Vector3().crossVectors(vhat, t1);
+    const angleOf = p => {
+      const r = new THREE.Vector3().subVectors(p, v);
+      return Math.atan2(r.dot(t2), r.dot(t1));
+    };
+    const pts = corners
+      .map(({ f, j }) => ({ p: inset3[f][j], n: projected[f].normal }))
+      .sort((a, b) => angleOf(a.p) - angleOf(b.p));
+    const m = pts.reduce((s, e) => s.add(e.p), new THREE.Vector3()).divideScalar(pts.length);
+    const nm = pts.reduce((s, e) => s.add(e.n), new THREE.Vector3()).normalize();
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      emitTri(m, nm, greenUV, a.p, a.n, greenUV, b.p, b.n, greenUV);
+    }
+  }
+
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
