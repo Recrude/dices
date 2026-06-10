@@ -3,110 +3,103 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>R777</title>
-    <script src="/js/examples.js?ver=1.1.1"></script>
-    <script src="/lib/enable3d/enable3d.framework.0.24.0.min.js"></script>
-    <link rel="icon" type="image/x-icon" href="img/diceForFavicon32.png">
+    <title>DICE ROLL</title>
+    <link rel="icon" type="image/x-icon" href="img/diceForFavicon32.png" />
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #00a651;
+        font-family: Arial, Helvetica, sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #container { position: fixed; inset: 0; }
+
+      #ui {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 18px;
+        padding: 14px 10px;
+        z-index: 10;
+        flex-wrap: wrap;
+      }
+      #types, #counts { display: flex; gap: 4px; }
+      .chip {
+        font: 11px/1 Arial, Helvetica, sans-serif;
+        letter-spacing: 0.08em;
+        color: #fff;
+        background: transparent;
+        border: 1px solid #fff;
+        border-radius: 999px;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      .chip.on { background: #fff; color: #00a651; }
+      .chip:hover { opacity: 0.8; }
+      #clear {
+        font: 11px/1 Arial, Helvetica, sans-serif;
+        letter-spacing: 0.08em;
+        color: #fff;
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        border-radius: 999px;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      #clear:hover { border-color: #fff; }
+
+      #hud {
+        position: fixed;
+        bottom: 0; left: 0; right: 0;
+        display: flex;
+        justify-content: center;
+        gap: 24px;
+        padding: 16px;
+        z-index: 10;
+        color: #fff;
+        font-size: 13px;
+        letter-spacing: 0.06em;
+        pointer-events: none;
+      }
+      #labels {
+        position: fixed;
+        inset: 0;
+        z-index: 5;
+        pointer-events: none;
+      }
+      .die-label {
+        position: absolute;
+        transform: translate(-50%, -100%);
+        color: #fff;
+        font: bold 15px Arial, Helvetica, sans-serif;
+        text-shadow: 0 0 4px rgba(0, 0, 0, 0.35);
+      }
+      .die-label.unsure { opacity: 0.55; }
+    </style>
   </head>
-
-  <style>
-    html,
-    body {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-    }
-
-    #title {
-      display: flex;
-      justify-content: center;
-	    position: fixed;
-      top: auto;
-      bottom: 0%;
-      right: 0%;
-      left: 0%;
-	    width: 100vw;
-      align-content: center;
-	    text-align: center;
-	    z-index: 100;
-      font-family: Arial, Helvetica, sans-serif;
-      color: white;
-      background-color: transparent;
-      letter-spacing: -10px;
-      line-height: 84.5%;
-      opacity: 1;
-      pointer-events: none;
-    }
-    .button-div{
-      display: flex;
-      justify-content: center;
-      position: fixed;
-      left: 0%;
-      top: 0%;
-      right: 0%;
-      bottom: auto;
-      padding-top: 10vh;
-      width: 100vw;
-      min-height: 45px;
-    }
-    .button-R777 {
-      width: 222px;
-      height: 40px;
-      background: url('/img/R777Button1.svg') no-repeat;
-      display: inline-block;
-    }
-
-    .button-R777:hover {
-      background: url('/img/R777Button2.svg') no-repeat;
-    }
-
-    .div-headerCheck {
-      position: fixed;
-      left: 0%;
-      top: 0%;
-      right: 0%;
-      bottom: auto;
-      width: 100vw;
-      min-height: 45px;
-      background-image: url('/img/checkerHeader4.svg');
-      background-position: 50% 50%;
-      background-size: contain;
-      background-repeat: repeat-x;
-      background-clip: padding-box;
-      
-    }
-    .imageDiv{
-      display: flex;
-      justify-content: center;
-      width: 90vw;
-      max-height: 60vh;
-      margin: 0 auto;
-      position: fixed;
-      top: auto;
-      bottom: 0%;
-      right: 0%;
-      left: 0%;
-      pointer-events: none;
-      -moz-user-select: none;
-      -webkit-user-select: none;
-      user-select: none;
-    }
-
-  </style>
   <body>
-    <div class="div-headerCheck"></div>
-
-    <div id="title"><img class="imageDiv" 
-      src="img/R777title.svg"
-      alt="R777">
+    <div id="container"></div>
+    <div id="ui">
+      <div id="types"></div>
+      <div id="counts"></div>
+      <button id="clear">clear</button>
     </div>
+    <div id="labels"></div>
+    <div id="hud"><span id="roll"></span><span id="field"></span></div>
 
-    <div class="button-div">
-      <a href="http://www.hivcdgw2021.com/"><div class="button-R777"></div></a>
-    </div>
-    
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three.module.min.js",
+          "cannon-es": "./vendor/cannon-es.js"
+        }
+      }
+    </script>
+    <script type="module" src="./src/main.js"></script>
   </body>
-  <div id="container">
-  <script src="./bundle.js"></script>
-  </div>
 </html>
