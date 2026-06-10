@@ -6,16 +6,21 @@
     <title>DICE ROLL</title>
     <link rel="icon" type="image/x-icon" href="img/diceForFavicon32.png" />
     <style>
+      :root {
+        --sans: 'Neue Haas Grotesk Display Pro', 'Neue Haas Grotesk Text Pro',
+          'Neue Haas Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      }
       html, body {
         margin: 0;
         padding: 0;
         overflow: hidden;
         background: #00a651;
-        font-family: Arial, Helvetica, sans-serif;
+        font-family: var(--sans);
         -webkit-user-select: none;
         user-select: none;
       }
       #container { position: fixed; inset: 0; }
+      #container canvas { touch-action: none; }
 
       #ui {
         position: fixed;
@@ -30,7 +35,7 @@
       }
       #types, #counts { display: flex; gap: 4px; }
       .chip {
-        font: 11px/1 Arial, Helvetica, sans-serif;
+        font: 11px/1 var(--sans);
         letter-spacing: 0.08em;
         color: #fff;
         background: transparent;
@@ -42,7 +47,7 @@
       .chip.on { background: #fff; color: #00a651; }
       .chip:hover { opacity: 0.8; }
       #clear {
-        font: 11px/1 Arial, Helvetica, sans-serif;
+        font: 11px/1 var(--sans);
         letter-spacing: 0.08em;
         color: #fff;
         background: transparent;
@@ -76,7 +81,7 @@
         position: absolute;
         transform: translate(-50%, -100%);
         color: #fff;
-        font: bold 15px Arial, Helvetica, sans-serif;
+        font: bold 15px var(--sans);
         text-shadow: 0 0 4px rgba(0, 0, 0, 0.35);
       }
       .die-label.unsure { opacity: 0.55; }

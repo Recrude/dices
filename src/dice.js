@@ -5,6 +5,9 @@ import * as CANNON from 'cannon-es';
 export const GREEN = '#00A651';
 export const DICE_ORDER = ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd%'];
 
+// Neue Haas Grotesk when installed, otherwise the Helvetica family
+const FONT = "'Neue Haas Grotesk Display Pro', 'Neue Haas Grotesk Text Pro', 'Neue Haas Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif";
+
 // circumradius per type (visual balance — tetra reads small for its circumsphere)
 const RADIUS = { d4: 2.1, d6: 1.7, d8: 1.8, d10: 1.75, d12: 1.65, d20: 1.75 };
 RADIUS['d%'] = RADIUS.d10;
@@ -246,7 +249,7 @@ function drawAtlas(type, poly, projected, labels, vertValues) {
         ctx.save();
         ctx.translate(px, py);
         ctx.rotate(ang);
-        ctx.font = `bold ${Math.round(inr * 0.95)}px Arial`;
+        ctx.font = `bold ${Math.round(inr * 0.95)}px ${FONT}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(String(vertValues[face[k]]), 0, 0);
@@ -257,7 +260,7 @@ function drawAtlas(type, poly, projected, labels, vertValues) {
       let factor = pts.length === 3 ? 1.45 : 1.1;
       if (label.length > 1) factor *= 0.78; // two digits need width
       const size = Math.round(inr * factor);
-      ctx.font = `bold ${size}px Arial`;
+      ctx.font = `bold ${size}px ${FONT}`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(label, cx, cy);
@@ -317,8 +320,9 @@ export function createDie(type, physicsMaterial) {
 
   const body = new CANNON.Body({ mass: 1, shape: def.shape, material: physicsMaterial });
   body.allowSleep = true;
-  body.sleepSpeedLimit = 0.6;
-  body.sleepTimeLimit = 0.35;
+  body.sleepSpeedLimit = 0.8;  // catch low-speed contact buzz early
+  body.sleepTimeLimit = 0.3;
+  body.angularDamping = 0.05;  // settle tumbling sooner without dulling flight
 
   const read = () => {
     tmpQ.set(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
