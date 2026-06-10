@@ -60,4 +60,6 @@ vendor/               three.js r160 (ESM min) + cannon-es 0.20 — 의존성은 
 - 숫자 서체: Neue Haas Grotesk(설치 시) → Helvetica Neue → Helvetica 폴백
 - 정착 안정화: solver 20회 반복, 접촉 relaxation 4, angularDamping 0.05,
   sleep 한계 상향(0.8/0.3s) — 바닥 미세진동 제거
-- HUD: 최근 굴림 내역 + 합계, 필드 개수, 주사위별 머리 위 값 라벨, clear
+- HUD: 최근 굴림 내역 + 합계, 필드 전체 합계 Σ(굴림 중엔 `Σ n…` 부분합),
+  주사위별 머리 위 값 라벨, clear. 값 판독은 이벤트가 아니라 폴링(~6회/초) —
+  자는 주사위는 매번 새로 읽어서 어떤 충돌·재정착 경로에서도 누락·낡은 값이 없음

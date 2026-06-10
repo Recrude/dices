@@ -134,11 +134,11 @@ world.addContactMaterial(new CANNON.ContactMaterial(diceMat, wallMat, {
   contactEquationRelaxation: 2,
 }));
 const allDice = [];   // every die on the field
-let batch = [];       // most recent throw: { die, labelEl, result }
-let batchSeq = 0;
+let batch = [];       // most recent throw: { die, labelEl }
 let simTime = 0;
 let batchDeadline = Infinity;
 let nextPatrol = 0;
+let pollTick = 0;
 
 const labelLayer = document.getElementById('labels');
 const hudRoll = document.getElementById('roll');
@@ -165,9 +165,12 @@ function spawnDieAt(type, pos, vel, spinScale = 1) {
   return die;
 }
 
+let noticeUntil = 0;
+
 function fieldFull() {
   if (allDice.length + curCount > MAX_DICE) {
     hudField.textContent = `max ${MAX_DICE} dice — clear the field`;
+    noticeUntil = simTime + 2.5; // keep the message up against HUD refreshes
     return true;
   }
   return false;
@@ -177,35 +180,39 @@ function beginBatch() {
   batch.forEach(e => e.labelEl.remove());
   batch = [];
   batchDeadline = simTime + 7; // sim-time, not wall-clock: survives throttled tabs
-  return ++batchSeq;
 }
 
-function trackDie(die, seq) {
+function trackDie(die) {
   const labelEl = document.createElement('div');
   labelEl.className = 'die-label';
   labelLayer.appendChild(labelEl);
-  const entry = { die, labelEl, result: null };
-  batch.push(entry);
+  batch.push({ die, labelEl });
+}
 
-  die.body.addEventListener('sleep', () => {
-    if (seq !== batchSeq) return;
-    entry.result = die.read();
-    labelEl.textContent = entry.result.label;
-    labelEl.classList.toggle('unsure', !entry.result.sure);
-    updateHUD();
-  });
-  die.body.addEventListener('wakeup', () => {
-    if (seq !== batchSeq) return;
-    entry.result = null;
-    labelEl.textContent = '';
-    updateHUD();
-  });
+// authoritative value pass — no events to miss: asleep dice are read (and cached),
+// awake dice are invalidated. Runs a few times a second from the loop.
+function pollValues() {
+  let fieldSum = 0, fieldRead = 0;
+  for (const die of allDice) {
+    if (die.body.sleepState === 2) {
+      die.cached = die.read(); // always fresh — a bump between polls can't leave a stale value
+    } else if (die.cached && !die.cached.forced) {
+      die.cached = null; // mid-roll — no value yet
+    }
+    if (die.cached) { fieldSum += die.cached.value; fieldRead++; }
+  }
+  for (const e of batch) {
+    const c = e.die.cached;
+    e.labelEl.textContent = c ? c.label : '';
+    e.labelEl.classList.toggle('unsure', !!c && (!c.sure || !!c.forced));
+  }
+  updateHUD(fieldSum, fieldRead);
 }
 
 // tap mode (original): dice fly in from the tapped screen corner toward the center
 function throwBatch(corner) {
   if (fieldFull()) return;
-  const seq = beginBatch();
+  beginBatch();
   const inset = 2.5;
   const cx = (arena.minX + arena.maxX) / 2, cz = (arena.minZ + arena.maxZ) / 2;
   for (let i = 0; i < curCount; i++) {
@@ -218,7 +225,7 @@ function throwBatch(corner) {
     const die = spawnDieAt(curType,
       { x: sx, y: GROUND_Y + 8 + Math.random() * 6, z: sz },
       { x: dir.x * speed, y: 12 + Math.random() * 8, z: dir.y * speed });
-    trackDie(die, seq);
+    trackDie(die);
   }
   updateHUD();
 }
@@ -226,7 +233,7 @@ function throwBatch(corner) {
 // drag/shake mode: dice leave a point along a direction with the gesture's force
 function throwDirected(origin, dir, speed) {
   if (fieldFull()) return;
-  const seq = beginBatch();
+  beginBatch();
   const pad = 2;
   const ox = clamp(origin.x, arena.minX + pad, arena.maxX - pad);
   const oz = clamp(origin.z, arena.minZ + pad, arena.maxZ - pad);
@@ -239,28 +246,27 @@ function throwDirected(origin, dir, speed) {
       { x: ox + Math.random() * 3 - 1.5, y: GROUND_Y + 3.2 + Math.random() * 2.5, z: oz + Math.random() * 3 - 1.5 },
       { x: dx * v, y: Math.min(7 + v * 0.28, 22), z: dz * v },
       0.8 + v / 30);
-    trackDie(die, seq);
+    trackDie(die);
   }
   updateHUD();
 }
 
-// force-read stragglers that never fall asleep (leaning dice, micro-jitter)
+// deadline fallback for dice that never fall asleep (leaning, micro-drift):
+// read them as-is, marked forced — the poll replaces this once they truly settle
 function forceReadBatch() {
-  batch.forEach(e => {
-    if (!e.result) {
-      e.result = e.die.read();
-      e.labelEl.textContent = e.result.label;
-      e.labelEl.classList.add('unsure');
+  for (const e of batch) {
+    if (!e.die.cached && e.die.body.sleepState !== 2) {
+      e.die.cached = { ...e.die.read(), forced: true };
     }
-  });
-  updateHUD();
+  }
+  pollValues();
 }
 
-function updateHUD() {
-  const done = batch.filter(e => e.result);
+function updateHUD(fieldSum = null, fieldRead = 0) {
+  const done = batch.filter(e => e.die.cached);
   if (batch.length) {
-    const parts = done.map(e => e.result.label);
-    const sum = done.reduce((s, e) => s + e.result.value, 0);
+    const parts = done.map(e => e.die.cached.label);
+    const sum = done.reduce((s, e) => s + e.die.cached.value, 0);
     const rolling = batch.length - done.length;
     hudRoll.textContent =
       `${curTypeOf(batch)} ×${batch.length}  ${parts.join(' + ')}` +
@@ -268,7 +274,13 @@ function updateHUD() {
   } else {
     hudRoll.textContent = '';
   }
-  hudField.textContent = allDice.length ? `field ${allDice.length}` : '';
+  if (simTime < noticeUntil) return; // keep the max-dice notice visible
+  if (!allDice.length) { hudField.textContent = ''; return; }
+  let text = `field ${allDice.length}`;
+  if (fieldSum !== null && fieldRead > 0) {
+    text += fieldRead === allDice.length ? ` · Σ ${fieldSum}` : ` · Σ ${fieldSum}…`;
+  }
+  hudField.textContent = text;
 }
 const curTypeOf = b => b[0]?.die.type ?? '';
 
@@ -277,7 +289,6 @@ function clearField() {
   allDice.length = 0;
   batch.forEach(e => e.labelEl.remove());
   batch = [];
-  batchSeq++;
   updateHUD();
 }
 
@@ -448,6 +459,10 @@ function animate() {
     nextPatrol = simTime + 2;
     recoverOutsiders();
   }
+  if (++pollTick >= 10) { // ~6×/s: read settled dice, refresh labels and sums
+    pollTick = 0;
+    pollValues();
+  }
 
   for (const d of allDice) {
     d.mesh.position.copy(d.body.position);
@@ -466,4 +481,4 @@ function animate() {
 animate();
 
 // console playground: __dice.world / __dice.allDice[n].read() ...
-window.__dice = { scene, camera, world, allDice, recoverOutsiders, get arena() { return arena; } };
+window.__dice = { scene, camera, world, allDice, recoverOutsiders, pollValues, get arena() { return arena; } };
